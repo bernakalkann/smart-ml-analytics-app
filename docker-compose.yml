@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # 1. FastAPI Python ML Servisi
+  python-ml-api:
+    build:
+      context: ./boilerplate/python-ml-api
+      dockerfile: Dockerfile
+    container_name: python_ml_api
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+    restart: always
+
+  # 2. Node.js Express API Gateway Servisi
+  node-gateway:
+    build:
+      context: ./boilerplate/node-gateway
+      dockerfile: Dockerfile
+    container_name: node_gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - ML_API_URL=http://python-ml-api:8000
+    depends_on:
+      - python-ml-api
+    restart: always
