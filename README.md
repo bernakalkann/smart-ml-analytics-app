@@ -1,25 +1,64 @@
 # Proje 3: Akıllı Veri Analitiği ve Makine Öğrenmesi Uygulaması
 
-Bu proje; bulut platformlarında veri işleme, makine öğrenmesi modeli geliştirme, eğitme, dağıtma ve verilerden tahmin/bilgi çıkarma süreçlerini uçtan uca yöneten çoklu dil (Python, Node.js, .NET, Java, PHP) ve çoklu bulut (AWS, GCP, Azure) mimarisinin şablonunu ve dökümantasyonunu sunar.
-
-> [!IMPORTANT]
-> **Önemli Tavsiye:** Bu projede çalışırken lütfen IDE'nizde `/Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics` klasörünü **aktif çalışma alanı (workspace)** olarak ayarlayın.
+Bu proje; bulut platformlarında veri işleme, makine öğrenmesi modeli geliştirme, eğitme, dağıtma ve verilerden tahmin/bilgi çıkarma süreçlerini uçtan uca yöneten çoklu dil (Python, Node.js, .NET, Java, PHP) ve çoklu bulut (AWS, GCP) mimarisinin çalışan altyapısını, şablonlarını ve IaC (Terraform) tanımlarını sunar.
 
 ---
 
-## 📂 Dizin Yapısı
+## 🏗️ Sistem ve Bulut Mimarisi
+
+Uygulamanın genel veri akışı, bulut entegrasyonları ve mikroservis yapısı aşağıdaki şekilde tasarlanmıştır:
+
+```mermaid
+graph TD
+    %% İstemci ve Gateway Katmanı
+    Client[İstemci / Web App] -->|HTTP POST Request /api/predict| Gateway[Node.js Express Gateway]
+    
+    %% Gateway ve Model Çıkarım Katmanı (Lokal ve Bulut)
+    subgraph Lokal Geliştirme (Docker Compose)
+        Gateway -->|Proxy Requests| FastAPI[FastAPI ML Serving API]
+        FastAPI -->|Predict| ModelLocal[Yerel Model / PyTorch & TF]
+    end
+    
+    subgraph AWS Bulut Altyapısı (Terraform IaC)
+        APIGateway[AWS API Gateway] -->|Proxy Integration| LambdaProxy[AWS Lambda Proxy Function]
+        LambdaProxy -->|boto3 invoke_endpoint| SageMaker[AWS SageMaker Serverless Endpoint]
+        SageMaker -->|Model serving| S3[(Amazon S3 - Model Artifacts)]
+    end
+
+    %% Veri Ambarı Katmanı
+    FastAPI -->|Log verisi yazma/okuma| BQConnector[BigQuery Connector]
+    BQConnector -->|Veri Analitiği & Depolama| GCPBigQuery[(Google Cloud BigQuery)]
+
+    %% İletişim Yolları
+    Gateway -.->|Uzak Canlı Test| APIGateway
+```
+
+### Mimari Bileşenlerin Görevleri:
+1. **Node.js Express Gateway (İstemci Ara Katmanı):** İstemcilerden gelen tüm istekleri karşılar, şema doğrulaması (request validation) yapar, kimlik doğrulama ekler ve istekleri gerçek tahmin servislerine yönlendirir.
+2. **FastAPI ML Serving API (Python API):** Yerel geliştirme ortamında PyTorch ve TensorFlow tabanlı modelleri yükleyip web API üzerinden tahmin sunar.
+3. **AWS SageMaker & Lambda & API Gateway (Bulut Üretim Hattı):** S3 üzerinde saklanan eğitilmiş makine öğrenmesi modelini (`model.tar.gz`), AWS SageMaker Serverless Endpoint kullanarak sıfır sunucu yönetimi ile yayına alır. Önündeki Lambda ve API Gateway ile de dış dünyaya açar.
+4. **GCP BigQuery Connector:** Üretilen tahmin verilerini ve model girdi parametrelerini, gelecekteki analizler ve model iyileştirme (re-training) süreçleri için Google Cloud BigQuery veri ambarına kaydeder.
+
+---
+
+## 📂 Dizin Yapısı ve Proje Rehberi
 
 ```text
 project-3-smart-analytics/
-├── README.md                           # Proje genel bakışı ve dizin haritası
+├── README.md                           # Proje genel bakışı ve hızlı başlangıç rehberi
 ├── docker-compose.yml                  # Yerel mikroservis orkestrasyonu (FastAPI + Gateway)
 ├── docs/                               # Detaylı Mimari ve Strateji Dökümanları
-│   ├── architecture_and_design.md      # Mikroservis tasarımı ve bulut dağılımı
-│   ├── ml_pipeline.md                  # Veri ambarı ve model eğitim boru hattı
-│   ├── cloud_deployment_strategy.md    # Terraform/Sunucusuz dağıtım stratejileri
-│   └── roadmap.md                      # Proje yol haritası (Faz 1 - Faz 5)
+│   ├── architecture_and_design.md      # Mikroservis tasarımı ve bulut dağılım planları
+│   ├── ml_pipeline.md                  # Veri ambarı, ETL ve model eğitim boru hattı
+│   ├── cloud_deployment_strategy.md    # AWS SageMaker ve Lambda sunucusuz mimari dökümanı
+│   └── roadmap.md                      # Proje yönetim yol haritası (Faz 1 - Faz 5)
+├── terraform/                          # Altyapı Tanımlama Kodları (IaC)
+│   ├── main.tf                         # AWS S3, SageMaker, Lambda, API Gateway kurulum scripti
+│   ├── lambda_function.py              # AWS Lambda proxy kodları
+│   ├── lambda_function.zip             # Paketlenmiş Lambda kodu
+│   └── model.tar.gz                    # AWS SageMaker için örnek model paketi
 └── boilerplate/                        # Temel Başlangıç Kod Şablonları (Boilerplate)
-    ├── python-ml-api/                  # FastAPI ile ML Model API
+    ├── python-ml-api/                  # FastAPI ile ML Model Serving Servisi
     │   ├── main.py
     │   ├── requirements.txt
     │   ├── Dockerfile
@@ -29,43 +68,70 @@ project-3-smart-analytics/
     │   ├── package.json
     │   ├── Dockerfile
     │   └── .env.example
-    └── bigquery-connector/             # Python BigQuery Okuma/Yazma Scripti
+    └── bigquery-connector/             # Python BigQuery Okuma/Yazma Modülü
         ├── bq_connector.py
         └── requirements.txt
 ```
 
 ---
 
-## ⚡ Docker Compose ile Yerel Kurulum ve Çalıştırma
+## ⚡ Yerel Geliştirme ve Docker Çalıştırma
 
-Projeyi yerel bilgisayarınızda tek bir komutla ayağa kaldırmak için:
+Projeyi yerel bilgisayarınızda tek bir komutla ayağa kaldırıp FastAPI servisinin Node.js Gateway arkasından tahmin üretmesini sağlayabilirsiniz.
 
-1.  **Bağlantıları Docker ortamında ayağa kaldırın:**
-    ```bash
-    docker-compose up --build
-    ```
-2.  **Gateway üzerinden test edin:**
-    ```bash
-    curl -X POST http://localhost:3000/api/predict \
-      -H "Content-Type: application/json" \
-      -d '{"features": [120.0, 3.0, 15.0, 4.5]}'
-    ```
+### 1. Servisleri Başlatın:
+```bash
+docker-compose up --build
+```
+Bu komut; Node.js Gateway servisini `3000` portunda, Python FastAPI servisini ise `8000` portunda ayağa kaldırır.
+
+### 2. Gateway Üzerinden Tahmin Testi Gerçekleştirin:
+```bash
+curl -X POST http://localhost:3000/api/predict \
+  -H "Content-Type: application/json" \
+  -d '{"features": [120.0, 3.0, 15.0, 4.5]}'
+```
+
+### 3. BigQuery Bağlayıcı Testi:
+`boilerplate/bigquery-connector` dizinine giderek BigQuery kimlik bilgilerinizi ayarladıktan sonra yerel testlerinizi yapabilirsiniz:
+```bash
+cd boilerplate/bigquery-connector
+pip install -r requirements.txt
+python bq_connector.py
+```
 
 ---
 
-## 📖 Dökümantasyon Bağlantıları
+## ☁️ Bulut Dağıtım (AWS Terraform IaC)
 
-Proje detaylarını incelemek için aşağıdaki dökümantasyon dosyalarına tıklayabilirsiniz:
+Tüm bulut altyapısı (S3, SageMaker Endpoint, Lambda ve API Gateway) **Terraform** kullanılarak otomatikleştirilmiştir.
 
-1. **[Sistem Mimarisi ve Mikroservis Tasarımı](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/architecture_and_design.md):** Farklı dil ve teknolojilerin entegrasyonu ile bulut dağılım planları.
-2. **[Makine Öğrenmesi Boru Hattı (ML Pipeline)](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/ml_pipeline.md):** Veri çekme, işleme, BigQuery analitiği ve model eğitim döngüsü.
-3. **[Bulut Dağıtım Stratejisi](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/cloud_deployment_strategy.md):** AWS üzerinde SageMaker, API Gateway ve Lambda entegrasyonu için IaC (Terraform) şablonu.
-4. **[Geliştirme Yol Haritası](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/roadmap.md):** Projenin hayata geçirilmesi için adım adım takvim ve metodoloji planı.
+### Dağıtım Adımları:
+1. **Terraform dizinine geçin:**
+   ```bash
+   cd terraform
+   ```
+2. **Gereksinimleri kurun ve ilklendirin:**
+   ```bash
+   terraform init
+   ```
+3. **Altyapıyı analiz edin (Planlama):**
+   ```bash
+   terraform plan
+   ```
+4. **AWS üzerinde dağıtımı gerçekleştirin:**
+   ```bash
+   terraform apply -auto-approve
+   ```
+*Dağıtım tamamlandığında size canlı tahmin isteklerini göndereceğiniz **API Gateway URL**'sini ve model ağırlıklarının yüklendiği **S3 Bucket** adını çıktı (output) olarak verecektir.*
 
 ---
 
-## 🚀 Başlangıç Kod Şablonları
+## 📖 Mimari ve Strateji Detayları
 
-- **[FastAPI Model API](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/boilerplate/python-ml-api/main.py):** TensorFlow ve PyTorch modellerini yükleyip web API üzerinden sunan Python servisi.
-- **[Express.js Gateway](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/boilerplate/node-gateway/server.js):** Python ML servisine güvenli istek atan ve client'lara veri sunan ara katman servisi.
-- **[BigQuery Connector](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/boilerplate/bigquery-connector/bq_connector.py):** Python üzerinden BigQuery'ye yüksek performanslı veri okuma/yazma gerçekleştiren kütüphane.
+Projenin teknik alt detaylarını öğrenmek için aşağıdaki mimari kılavuzları inceleyebilirsiniz:
+
+1. **[Sistem Mimarisi ve Tasarımı](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/architecture_and_design.md):** Mikroservis yapısı, gRPC, Apache Kafka kullanımı ve diller arası iletişim.
+2. **[Makine Öğrenmesi Boru Hattı](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/ml_pipeline.md):** Veri ambarı yapılandırması, özellik mühendisliği (Feature Engineering) ve eğitim döngüleri.
+3. **[Bulut Dağıtım Kılavuzu](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/cloud_deployment_strategy.md):** Sunucusuz çıkarım (Serverless Inference), güvenlik (VPC, IAM) ve izleme (CloudWatch) stratejileri.
+4. **[Roadmap (Yol Haritası)](file:///Users/bernakalkan/.gemini/antigravity-ide/scratch/project-3-smart-analytics/docs/roadmap.md):** 5 fazdan oluşan 20 haftalık çevik (Agile) geliştirme planı.
