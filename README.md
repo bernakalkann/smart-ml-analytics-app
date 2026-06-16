@@ -14,12 +14,12 @@ graph TD
     Client[İstemci / Web App] -->|HTTP POST Request /api/predict| Gateway[Node.js Express Gateway]
     
     %% Gateway ve Model Çıkarım Katmanı (Lokal ve Bulut)
-    subgraph Lokal Geliştirme (Docker Compose)
+    subgraph "Lokal Geliştirme (Docker Compose)"
         Gateway -->|Proxy Requests| FastAPI[FastAPI ML Serving API]
         FastAPI -->|Predict| ModelLocal[Yerel Model / PyTorch & TF]
     end
     
-    subgraph AWS Bulut Altyapısı (Terraform IaC)
+    subgraph "AWS Bulut Altyapısı (Terraform IaC)"
         APIGateway[AWS API Gateway] -->|Proxy Integration| LambdaProxy[AWS Lambda Proxy Function]
         LambdaProxy -->|boto3 invoke_endpoint| SageMaker[AWS SageMaker Serverless Endpoint]
         SageMaker -->|Model serving| S3[(Amazon S3 - Model Artifacts)]
